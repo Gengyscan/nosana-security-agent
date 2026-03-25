@@ -6,7 +6,9 @@
   "scripts": {
     "start": "elizaos start --character ./characters/agent.character.json",
     "dev": "elizaos dev --character ./characters/agent.character.json",
-    "build": "tsup src/index.ts --format esm --dts --out-dir dist"
+    "build": "tsup src/index.ts --format esm --dts --out-dir dist",
+    "postinstall": "node scripts/patch-plugin-openai.mjs",
+    "proxy": "bun run scripts/nosana-proxy.ts"
   },
   "dependencies": {
     "@elizaos/core": "^1.0.0",
