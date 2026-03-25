@@ -70,7 +70,7 @@ const selectKeyFiles = (tree: GitTreeItem[]): string[] => {
     .filter((item) => item.type === "blob")
     .map((item) => item.path)
     .filter((path) => KEY_FILE_MATCHERS.some((matcher) => matcher.test(path)))
-    .slice(0, 20);
+    .slice(0, 12);
 };
 
 const decodeBase64 = (value: string): string => {
@@ -90,7 +90,7 @@ const fetchFileContent = async (owner: string, repo: string, path: string, branc
 
   return {
     path,
-    content: decodeBase64(payload.content).slice(0, 6000),
+    content: decodeBase64(payload.content).slice(0, 4000),
   };
 };
 

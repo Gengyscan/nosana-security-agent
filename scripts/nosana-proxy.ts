@@ -17,7 +17,7 @@ const NOSANA_BASE = process.env.NOSANA_API_URL
 
 const PROXY_PORT = parseInt(process.env.PROXY_PORT ?? "3001", 10);
 const EMBED_DIM = 1536;
-const REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_MS = 300_000;
 
 const zeroVector = new Array(EMBED_DIM).fill(0);
 const fetchOpts = { tls: { rejectUnauthorized: false } };
@@ -103,7 +103,7 @@ async function proxyChatCompletions(req: Request): Promise<Response> {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return new Response(JSON.stringify({ error: "Upstream timeout after 120s" }), {
+      return new Response(JSON.stringify({ error: "Upstream timeout after 300s" }), {
         status: 504,
         headers: { "Content-Type": "application/json" },
       });
@@ -160,7 +160,7 @@ async function proxyPassthrough(req: Request, pathname: string): Promise<Respons
 
 Bun.serve({
   port: PROXY_PORT,
-  idleTimeout: 120,
+  idleTimeout: 255,
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
