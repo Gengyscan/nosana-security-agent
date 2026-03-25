@@ -17,6 +17,7 @@ const NOSANA_BASE = process.env.NOSANA_API_URL
 
 const PROXY_PORT = parseInt(process.env.PROXY_PORT ?? "3001", 10);
 const EMBED_DIM = 1536;
+const REQUEST_TIMEOUT_MS = 120_000;
 
 const zeroVector = new Array(EMBED_DIM).fill(0);
 const fetchOpts = { tls: { rejectUnauthorized: false } };
@@ -85,15 +86,32 @@ async function proxyChatCompletions(req: Request): Promise<Response> {
   const roles = body.messages?.map((m) => m.role).join(",") ?? "none";
   console.log(`[proxy] → model=${body.model} msgs=${body.messages?.length} roles=[${roles}] max_t=${body.max_tokens} stream=${body.stream}`);
 
-  const upstream = await fetch(`${NOSANA_BASE}/v1/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: req.headers.get("Authorization") ?? "",
-    },
-    body: JSON.stringify(body),
-    ...fetchOpts,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${NOSANA_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: req.headers.get("Authorization") ?? "",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      ...fetchOpts,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return new Response(JSON.stringify({ error: "Upstream timeout after 120s" }), {
+        status: 504,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!upstream.ok) {
     const errText = await upstream.text();
@@ -106,12 +124,19 @@ async function proxyChatCompletions(req: Request): Promise<Response> {
 
   console.log(`[proxy] ← ${upstream.status} OK`);
 
+  const isStream = body.stream === true;
   return new Response(upstream.body, {
     status: upstream.status,
-    headers: {
-      "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
-      "Transfer-Encoding": upstream.headers.get("Transfer-Encoding") ?? "",
-    },
+    headers: isStream
+      ? {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      }
+      : {
+        "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
+        "Transfer-Encoding": upstream.headers.get("Transfer-Encoding") ?? "",
+      },
   });
 }
 
@@ -135,6 +160,7 @@ async function proxyPassthrough(req: Request, pathname: string): Promise<Respons
 
 Bun.serve({
   port: PROXY_PORT,
+  idleTimeout: 120,
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
