@@ -92,3 +92,11 @@ pnpm-lock.yaml
 bun.lockb
 /.eliza/.elizadb
 /dist
+
+# sentinel local artifacts
+*.log
+*.err
+body.json
+msg.json
+node_modules
+dist/
