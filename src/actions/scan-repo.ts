@@ -13,6 +13,11 @@ import { type FileArtifact, type Finding, type OpenAIMessage, type ScanTarget } 
 const GITHUB_URL_REGEX = /https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)/i;
 const KEY_FILE_MATCHERS = [/package\.json$/i, /dockerfile$/i, /^\.env/i, /config/i, /\.ya?ml$/i, /\.ini$/i];
 
+const readGitHubToken = (): string | undefined => {
+  const runtime = globalThis as { process?: { env?: Record<string, string | undefined> } };
+  return runtime.process?.env?.["GITHUB_TOKEN"];
+};
+
 interface GitHubRepoResponse {
   default_branch?: string;
 }
@@ -26,10 +31,6 @@ interface GitTreeResponse {
   tree?: GitTreeItem[];
 }
 
-interface ContentResponse {
-  content?: string;
-  encoding?: string;
-}
 
 const extractText = (message: Memory): string => {
   const content = message.content as { text?: string } | undefined;
@@ -53,12 +54,15 @@ const extractRepoTarget = (text: string): ScanTarget | null => {
 };
 
 const fetchJson = async <T>(url: string): Promise<T | null> => {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "sentinel-security-recon-agent",
-    },
-  });
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "sentinel-security-recon-agent",
+  };
+  const token = readGitHubToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     return null;
   }
@@ -73,25 +77,14 @@ const selectKeyFiles = (tree: GitTreeItem[]): string[] => {
     .slice(0, 12);
 };
 
-const decodeBase64 = (value: string): string => {
-  const normalized = value.replace(/\n/g, "");
-  const binary = atob(normalized);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-};
-
 const fetchFileContent = async (owner: string, repo: string, path: string, branch: string): Promise<FileArtifact | null> => {
-  const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${branch}`;
-  const payload = await fetchJson<ContentResponse>(url);
-  if (!payload?.content || payload.encoding !== "base64") {
+  const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+  const response = await fetch(url);
+  if (!response.ok) {
     return null;
   }
-
-  return {
-    path,
-    content: decodeBase64(payload.content).slice(0, 4000),
-  };
+  const text = await response.text();
+  return { path, content: text.slice(0, 4000) };
 };
 
 const buildPrompt = (target: ScanTarget, files: FileArtifact[]): OpenAIMessage[] => {
